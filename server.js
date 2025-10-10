@@ -1,4 +1,4 @@
-mport express from 'express';
+import express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import { config } from 'dotenv';
@@ -433,4 +433,5 @@ app.get('/healthz', (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 VIN Agent service running on :${PORT}`);
 });
+
 
