@@ -1,4 +1,4 @@
-import express from 'express';
+mport express from 'express';
 import cors from 'cors';
 import morgan from 'morgan';
 import { config } from 'dotenv';
@@ -341,7 +341,7 @@ app.get('/api/inventory/stats', async (req, res) => {
 // ============================================================================
 // TEST: Add sample vehicles (for testing only!)
 // ============================================================================
-app.post('/api/inventory/test-data', async (req, res) => {
+app.get('/api/inventory/test-data', async (req, res) => {
   try {
     const sampleVehicles = [
       { stock: 'M37385', year: 2024, make: 'Chevrolet', model: 'Silverado 1500', trim: 'Work Truck' },
@@ -433,3 +433,4 @@ app.get('/healthz', (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 VIN Agent service running on :${PORT}`);
 });
+
