@@ -32,92 +32,245 @@ async function scrapeVINInventory() {
         '--no-sandbox',
         '--disable-setuid-sandbox',
         '--disable-dev-shm-usage',
-        '--disable-gpu'
+        '--disable-gpu',
+        '--disable-software-rasterizer',
+        '--disable-extensions'
       ]
     });
     
     const page = await browser.newPage();
     await page.setViewport({ width: 1920, height: 1080 });
     
+    // Set a reasonable default timeout
+    page.setDefaultTimeout(60000);
+    
     // Login to VIN Solutions
     console.log('🔐 Logging in to VIN Solutions...');
-    await page.goto(VIN_LOGIN_URL, { waitUntil: 'networkidle2' });
+    console.log('🔗 URL:', VIN_LOGIN_URL);
+    
+    await page.goto(VIN_LOGIN_URL, { 
+      waitUntil: 'networkidle2',
+      timeout: 60000 
+    });
     
     // Wait for and fill login form
-    await page.waitForSelector('input[name="username"], input[type="email"], input[id*="user"]', { timeout: 10000 });
+    console.log('⏳ Waiting for login form...');
+    await page.waitForSelector('input[name="username"], input[type="email"], input[id*="user"], input[name="loginId"]', { 
+      timeout: 20000 
+    });
     
     // Try different possible login field selectors
     const usernameField = await page.$('input[name="username"]') || 
                           await page.$('input[type="email"]') ||
-                          await page.$('input[id*="user"]');
+                          await page.$('input[name="loginId"]') ||
+                          await page.$('input[id*="user"]') ||
+                          await page.$('input[placeholder*="mail"]') ||
+                          await page.$('input[placeholder*="sername"]');
     
     const passwordField = await page.$('input[name="password"]') ||
-                          await page.$('input[type="password"]');
+                          await page.$('input[type="password"]') ||
+                          await page.$('input[placeholder*="assword"]');
     
     if (!usernameField || !passwordField) {
-      throw new Error('Could not find login fields');
+      console.error('❌ Could not find login fields on page');
+      throw new Error('Could not find login fields on page');
     }
     
-    await usernameField.type(VIN_USERNAME);
-    await passwordField.type(VIN_PASSWORD);
+    console.log('✍️  Entering credentials...');
+    await usernameField.type(VIN_USERNAME, { delay: 50 });
+    await passwordField.type(VIN_PASSWORD, { delay: 50 });
     
-    // Submit form
-    await Promise.all([
-      page.waitForNavigation({ waitUntil: 'networkidle2' }),
-      page.keyboard.press('Enter')
-    ]);
+    console.log('🔑 Submitting login form...');
+    
+    // Submit form - try multiple methods
+    try {
+      await Promise.all([
+        page.waitForNavigation({ 
+          waitUntil: 'networkidle2',
+          timeout: 60000 
+        }),
+        page.keyboard.press('Enter')
+      ]);
+    } catch (navError) {
+      console.log('⚠️  Navigation via Enter failed, trying submit button...');
+      const submitButton = await page.$('button[type="submit"]') || 
+                           await page.$('input[type="submit"]') ||
+                           await page.$('button:has-text("Login")') ||
+                           await page.$('button:has-text("Sign In")');
+      
+      if (submitButton) {
+        await Promise.all([
+          page.waitForNavigation({ 
+            waitUntil: 'networkidle2',
+            timeout: 60000 
+          }),
+          submitButton.click()
+        ]);
+      } else {
+        throw new Error('Could not submit login form');
+      }
+    }
     
     console.log('✅ Logged in successfully');
+    
+    // Wait a bit for dashboard to fully load
+    await page.waitForTimeout(3000);
     
     // Navigate to Browse Inventory
     console.log('📋 Navigating to inventory page...');
     
-    // Look for Browse Inventory link
-    await page.waitForSelector('a[href*="inventory"], a:has-text("Browse Inventory"), a:has-text("Inventory")', { timeout: 10000 });
+    // Try multiple methods to find and click inventory link
+    let navigated = false;
     
-    const inventoryLink = await page.$('a[href*="inventory"]') ||
-                          await page.evaluateHandle(() => {
-                            const links = Array.from(document.querySelectorAll('a'));
-                            return links.find(a => a.textContent.includes('Browse Inventory') || a.textContent.includes('Inventory'));
-                          });
+    // Method 1: Direct href selector
+    try {
+      const inventoryLink = await page.$('a[href*="inventory"]');
+      if (inventoryLink) {
+        const text = await page.evaluate(el => el.textContent, inventoryLink);
+        console.log(`📍 Found inventory link (href): "${text}"`);
+        
+        await Promise.all([
+          page.waitForNavigation({ 
+            waitUntil: 'networkidle2',
+            timeout: 60000 
+          }),
+          inventoryLink.click()
+        ]);
+        navigated = true;
+      }
+    } catch (err) {
+      console.log('⚠️  Method 1 failed, trying next method...');
+    }
     
-    if (inventoryLink) {
-      await Promise.all([
-        page.waitForNavigation({ waitUntil: 'networkidle2' }),
-        inventoryLink.click()
-      ]);
+    // Method 2: Text-based search
+    if (!navigated) {
+      try {
+        const inventoryLink = await page.evaluateHandle(() => {
+          const links = Array.from(document.querySelectorAll('a'));
+          return links.find(a => {
+            const text = a.textContent.toLowerCase();
+            return text.includes('browse inventory') || 
+                   (text.includes('inventory') && !text.includes('add'));
+          });
+        });
+        
+        if (inventoryLink) {
+          const text = await page.evaluate(el => el.textContent, inventoryLink);
+          console.log(`📍 Found inventory link (text): "${text}"`);
+          
+          await Promise.all([
+            page.waitForNavigation({ 
+              waitUntil: 'networkidle2',
+              timeout: 60000 
+            }),
+            inventoryLink.click()
+          ]);
+          navigated = true;
+        }
+      } catch (err) {
+        console.log('⚠️  Method 2 failed, trying next method...');
+      }
+    }
+    
+    // Method 3: Direct navigation to inventory URL
+    if (!navigated) {
+      console.log('⚠️  Could not click link, trying direct navigation...');
+      const currentUrl = page.url();
+      const baseUrl = new URL(currentUrl).origin;
+      
+      // Try common inventory URLs
+      const inventoryUrls = [
+        `${baseUrl}/inventory`,
+        `${baseUrl}/browse-inventory`,
+        `${baseUrl}/inventory/browse`,
+        `${currentUrl.includes('?') ? currentUrl.split('?')[0] : currentUrl}?targetControl=inventory`
+      ];
+      
+      for (const url of inventoryUrls) {
+        try {
+          console.log(`🔗 Trying: ${url}`);
+          await page.goto(url, { 
+            waitUntil: 'networkidle2',
+            timeout: 30000 
+          });
+          
+          // Check if we have a table
+          const hasTable = await page.$('table');
+          if (hasTable) {
+            console.log('✅ Found inventory table via direct navigation');
+            navigated = true;
+            break;
+          }
+        } catch (err) {
+          console.log(`⚠️  ${url} failed`);
+        }
+      }
+    }
+    
+    if (!navigated) {
+      throw new Error('Could not navigate to Browse Inventory page');
     }
     
     console.log('📊 Scraping inventory table...');
     
     // Wait for inventory table
-    await page.waitForSelector('table', { timeout: 10000 });
+    await page.waitForSelector('table', { timeout: 20000 });
     
-    // Scrape all vehicle data
+    // Take a screenshot for debugging (optional - only in development)
+    // await page.screenshot({ path: '/tmp/inventory-page.png', fullPage: true });
+    
+    console.log('🔍 Extracting vehicle data...');
+    
+    // Scrape all vehicle data with CORRECT column mapping
     const vehicles = await page.evaluate(() => {
       const rows = Array.from(document.querySelectorAll('table tr')).slice(1); // Skip header
       
       return rows.map(row => {
         const cells = row.querySelectorAll('td');
-        if (cells.length < 5) return null;
+        if (cells.length < 8) return null;
         
-        const stockNumber = cells[1]?.textContent?.trim() || '';
-        const yearText = cells[3]?.textContent?.trim() || '';
-        const makeText = cells[4]?.textContent?.trim() || '';
-        const modelText = cells[5]?.textContent?.trim() || '';
-        const trimText = cells[6]?.textContent?.trim() || '';
-        const vin = cells[7]?.textContent?.trim() || '';
+        // CORRECT column mapping based on your screenshot:
+        // Col 1: Photos
+        // Col 2: Stock # (M37385)
+        // Col 3: Desk icon
+        // Col 4: Autotrader icon  
+        // Col 5: CARFAX VB Yr Make (24 Chevrolet)
+        // Col 6: Model (Silverado MD)
+        // Col 7: Trim (Work Truck)
+        // Col 8: VIN (HTKJPVM4RH178232)
         
-        // Parse year (might be "24" or "2024")
-        let year = parseInt(yearText);
-        if (year < 100) {
-          year = 2000 + year; // Convert "24" to "2024"
+        const stockNumber = cells[1]?.textContent?.trim() || '';  // Column 2
+        const carfaxText = cells[4]?.textContent?.trim() || '';   // Column 5: "24 Chevrolet"
+        const modelText = cells[5]?.textContent?.trim() || '';    // Column 6
+        const trimText = cells[6]?.textContent?.trim() || '';     // Column 7
+        const vin = cells[7]?.textContent?.trim() || '';          // Column 8
+        
+        // Parse year and make from "24 Chevrolet" or "2024 Chevrolet" format
+        let year = null;
+        let make = '';
+        
+        if (carfaxText) {
+          const parts = carfaxText.split(/\s+/);
+          if (parts.length >= 2) {
+            const yearStr = parts[0];
+            make = parts.slice(1).join(' ');
+            
+            // Parse year (might be "24" or "2024")
+            year = parseInt(yearStr);
+            if (year && !isNaN(year)) {
+              if (year < 100) {
+                year = 2000 + year; // Convert "24" to "2024"
+              }
+            } else {
+              year = null;
+            }
+          }
         }
         
         return {
           stock_number: stockNumber,
-          year: year || null,
-          make: makeText,
+          year: year,
+          make: make,
           model: modelText,
           trim: trimText,
           vin: vin || null,
@@ -128,11 +281,31 @@ async function scrapeVINInventory() {
     
     console.log(`✅ Found ${vehicles.length} vehicles`);
     
+    if (vehicles.length === 0) {
+      console.warn('⚠️  WARNING: No vehicles found in table!');
+      console.warn('⚠️  Table structure may have changed or page did not load correctly');
+      return {
+        success: false,
+        error: 'No vehicles found in table',
+        vehiclesFound: 0,
+        inserted: 0,
+        updated: 0,
+        errors: 0
+      };
+    }
+    
+    // Log first few vehicles for debugging
+    console.log('📋 Sample vehicles (first 3):');
+    vehicles.slice(0, 3).forEach((v, i) => {
+      console.log(`  ${i + 1}. ${v.year} ${v.make} ${v.model} ${v.trim} (Stock: ${v.stock_number})`);
+    });
+    
     // Update database
     console.log('💾 Updating database...');
     
     let insertedCount = 0;
     let updatedCount = 0;
+    let errorCount = 0;
     
     for (const vehicle of vehicles) {
       try {
@@ -147,6 +320,7 @@ async function scrapeVINInventory() {
             trim = EXCLUDED.trim,
             vin = EXCLUDED.vin,
             status = EXCLUDED.status,
+            updated_at = NOW(),
             last_scraped_at = NOW()
           RETURNING (xmax = 0) AS inserted
         `, [
@@ -166,24 +340,30 @@ async function scrapeVINInventory() {
         }
       } catch (err) {
         console.error(`❌ Error upserting vehicle ${vehicle.stock_number}:`, err.message);
+        errorCount++;
       }
     }
     
-    console.log(`✅ Database updated: ${insertedCount} inserted, ${updatedCount} updated`);
+    console.log(`✅ Database updated successfully!`);
+    console.log(`   📊 Summary: ${insertedCount} new, ${updatedCount} updated, ${errorCount} errors`);
     
     return {
       success: true,
       vehiclesFound: vehicles.length,
       inserted: insertedCount,
-      updated: updatedCount
+      updated: updatedCount,
+      errors: errorCount
     };
     
   } catch (error) {
-    console.error('❌ Scraper error:', error);
+    console.error('❌ Scraper error:', error.message);
+    console.error('📍 Stack trace:', error.stack);
     throw error;
   } finally {
     if (browser) {
+      console.log('🔒 Closing browser...');
       await browser.close();
+      console.log('✅ Browser closed');
     }
   }
 }
@@ -192,11 +372,13 @@ async function scrapeVINInventory() {
 if (import.meta.url === `file://${process.argv[1]}`) {
   scrapeVINInventory()
     .then(result => {
-      console.log('✅ Scraper completed:', result);
+      console.log('🎉 Scraper completed successfully!');
+      console.log('📊 Final results:', result);
       process.exit(0);
     })
     .catch(error => {
-      console.error('❌ Scraper failed:', error);
+      console.error('💥 Scraper failed!');
+      console.error('❌ Error:', error.message);
       process.exit(1);
     });
 }
