@@ -339,6 +339,43 @@ app.get('/api/inventory/stats', async (req, res) => {
 });
 
 // ============================================================================
+// TRIGGER INVENTORY SCRAPER
+// ============================================================================
+app.post('/api/inventory/sync', async (req, res) => {
+  try {
+    console.log('[Inventory Sync] Starting scraper...');
+    
+    // Check for VIN credentials
+    if (!process.env.VIN_USERNAME || !process.env.VIN_PASSWORD) {
+      return res.status(500).json({
+        success: false,
+        error: 'VIN_USERNAME and VIN_PASSWORD environment variables not set'
+      });
+    }
+    
+    // Dynamic import to avoid loading puppeteer unless needed
+    const scrapeVINInventory = (await import('./scraper/index.js')).default;
+    
+    const result = await scrapeVINInventory();
+    
+    console.log('[Inventory Sync] Completed:', result);
+    
+    res.json({
+      success: true,
+      message: 'Inventory synced successfully',
+      ...result
+    });
+    
+  } catch (error) {
+    console.error('[Inventory Sync] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// ============================================================================
 // TEST: Add sample vehicles (for testing only!)
 // ============================================================================
 app.get('/api/inventory/test-data', async (req, res) => {
@@ -433,5 +470,3 @@ app.get('/healthz', (req, res) => {
 app.listen(PORT, () => {
   console.log(`🚀 VIN Agent service running on :${PORT}`);
 });
-
-
