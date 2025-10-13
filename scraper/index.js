@@ -119,21 +119,87 @@ async function scrapeVINInventory() {
     // Wait a bit for dashboard to fully load
     await new Promise(resolve => setTimeout(resolve, 3000));
     
-    // Navigate directly to Browse Inventory page
-    console.log('📋 Navigating to inventory page...');
-    
-    const inventoryUrl = 'https://vinsolutions.app.coxautoinc.com/vinconnect/#/CarDashboard/ploader.aspx?TargetControl=Inventory/autosp.ascx&SelectedTab=t_Inventory';
-    console.log('🔗 Going to:', inventoryUrl);
-    
-    await page.goto(inventoryUrl, { 
+    // Navigate to dashboard
+    console.log('📋 Navigating to dashboard...');
+    await page.goto('https://vinsolutions.app.coxautoinc.com/vinconnect/pane-both/vinconnect-dealer-dashboard', { 
       waitUntil: 'networkidle2',
       timeout: 60000 
     });
     
+    // Wait for page to load
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    
+    // Click Inventory tab
+    console.log('🔗 Looking for Inventory tab...');
+    try {
+      const inventoryTab = await page.evaluateHandle(() => {
+        const elements = Array.from(document.querySelectorAll('a, button, div[role="tab"]'));
+        return elements.find(el => {
+          const text = el.textContent.trim();
+          return text === 'Inventory' || text.toLowerCase() === 'inventory';
+        });
+      });
+      
+      if (inventoryTab) {
+        console.log('✅ Found Inventory tab, clicking...');
+        await inventoryTab.click();
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        console.log('✅ Clicked Inventory tab');
+      } else {
+        console.log('⚠️  Could not find Inventory tab by text, trying CSS selector...');
+        const tabBySelector = await page.$('a[href*="Inventory"], button:contains("Inventory")');
+        if (tabBySelector) {
+          await tabBySelector.click();
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          console.log('✅ Clicked Inventory tab via selector');
+        }
+      }
+    } catch (err) {
+      console.log('⚠️  Could not click Inventory tab:', err.message);
+    }
+    
+    // Click Browse Inventory link
+    console.log('🔗 Looking for Browse Inventory link...');
+    try {
+      const browseLink = await page.evaluateHandle(() => {
+        const links = Array.from(document.querySelectorAll('a'));
+        return links.find(el => {
+          const text = el.textContent.trim();
+          return text.includes('Browse Inventory') || text === 'Browse Inventory';
+        });
+      });
+      
+      if (browseLink) {
+        console.log('✅ Found Browse Inventory link, clicking...');
+        await Promise.all([
+          page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }),
+          browseLink.click()
+        ]);
+        console.log('✅ Navigated to Browse Inventory');
+      } else {
+        console.log('⚠️  Could not find Browse Inventory link, trying direct URL...');
+        await page.goto('https://vinsolutions.app.coxautoinc.com/vinconnect/#/CarDashboard/ploader.aspx?TargetControl=Inventory/autosp.ascx&SelectedTab=t_Inventory', {
+          waitUntil: 'domcontentloaded',
+          timeout: 60000
+        });
+        console.log('✅ Navigated via direct URL');
+      }
+    } catch (err) {
+      console.log('⚠️  Navigation error, trying direct URL fallback:', err.message);
+      await page.goto('https://vinsolutions.app.coxautoinc.com/vinconnect/#/CarDashboard/ploader.aspx?TargetControl=Inventory/autosp.ascx&SelectedTab=t_Inventory', {
+        waitUntil: 'domcontentloaded',
+        timeout: 60000
+      });
+    }
+    
+    // Wait for dynamic content to load
+    console.log('⏳ Waiting for page to fully load...');
+    await new Promise(resolve => setTimeout(resolve, 5000));
+    
     console.log('📊 Waiting for inventory table...');
     
     // Wait for inventory table
-    await page.waitForSelector('table', { timeout: 20000 });
+    await page.waitForSelector('table', { timeout: 30000 });
     
     console.log('🔍 Extracting vehicle data...');
     
