@@ -153,85 +153,53 @@ async function scrapeVINInventory() {
     });
     await new Promise(resolve => setTimeout(resolve, 2000));
     
-    console.log('📊 Looking for inventory table...');
+    console.log('📊 Looking for iframe with inventory table...');
     
-    // Debug: Check what's on the page
-    const pageInfo = await page.evaluate(() => {
-      return {
-        tables: document.querySelectorAll('table').length,
-        tableCells: document.querySelectorAll('table td').length,
-        tableRows: document.querySelectorAll('table tr').length,
-        allText: document.body.innerText.substring(0, 500)
-      };
-    });
+    // Wait for iframe to load
+    await page.waitForSelector('iframe', { timeout: 30000 });
     
-    console.log(`🔍 Page analysis:`, pageInfo);
+    // Get all frames
+    const frames = page.frames();
+    console.log(`🔍 Found ${frames.length} frames`);
     
-    // Try to find the table with multiple approaches
-    let tableFound = false;
+    // Find the frame containing the inventory table
+    let inventoryFrame = null;
     
-    // Approach 1: Standard table selector
-    const standardTable = await page.$('table');
-    if (standardTable) {
-      console.log('✅ Found table with standard selector');
-      tableFound = true;
-    }
-    
-    // Approach 2: Wait for cells to appear
-    if (!tableFound) {
-      console.log('⏳ Waiting for table cells to appear...');
+    for (const frame of frames) {
+      const frameUrl = frame.url();
+      console.log(`  Checking frame: ${frameUrl.substring(0, 100)}...`);
+      
       try {
-        await page.waitForSelector('table td', { timeout: 20000 });
-        console.log('✅ Found table cells!');
-        tableFound = true;
-      } catch (err) {
-        console.log('⚠️  No table cells found yet');
-      }
-    }
-    
-    // Approach 3: Check for any tabular data structure
-    if (!tableFound) {
-      console.log('🔍 Checking for alternative table structures...');
-      const hasData = await page.evaluate(() => {
-        // Check for divs that might contain inventory data
-        const text = document.body.innerText.toLowerCase();
-        return text.includes('stock') || text.includes('silverado') || text.includes('chevrolet');
-      });
-      
-      if (hasData) {
-        console.log('⚠️  Found inventory keywords but no table structure');
-        console.log('💡 The page structure might be different than expected');
-      }
-    }
-    
-    // Final wait and attempt
-    if (!tableFound) {
-      console.log('⏳ Final wait period (15 seconds)...');
-      await new Promise(resolve => setTimeout(resolve, 15000));
-      
-      const finalCheck = await page.evaluate(() => {
-        return document.querySelectorAll('table td').length;
-      });
-      
-      console.log(`📊 Final check: ${finalCheck} table cells found`);
-      
-      if (finalCheck === 0) {
-        // Take a screenshot for debugging (save to /tmp which Render has)
-        try {
-          await page.screenshot({ path: '/tmp/inventory-debug.png', fullPage: true });
-          console.log('📸 Debug screenshot saved to /tmp/inventory-debug.png');
-        } catch (screenshotErr) {
-          console.log('⚠️  Could not save screenshot');
+        // Check if this frame contains the table
+        const hasTable = await frame.$('table');
+        if (hasTable) {
+          // Count cells to make sure it's the right table
+          const cellCount = await frame.evaluate(() => {
+            return document.querySelectorAll('table td').length;
+          });
+          
+          console.log(`  Found table with ${cellCount} cells`);
+          
+          if (cellCount > 10) {
+            console.log(`✅ Found inventory table in frame!`);
+            inventoryFrame = frame;
+            break;
+          }
         }
-        
-        throw new Error('No table data found after all attempts. The page structure may have changed or requires different navigation.');
+      } catch (err) {
+        // Frame might not be accessible, skip it
+        console.log(`  ⚠️  Could not access frame: ${err.message}`);
       }
     }
     
-    console.log('🔍 Extracting vehicle data...');
+    if (!inventoryFrame) {
+      throw new Error('Could not find iframe containing inventory table');
+    }
     
-    // Scrape all vehicle data with CORRECT column mapping
-    const vehicles = await page.evaluate(() => {
+    console.log('🔍 Extracting vehicle data from iframe...');
+    
+    // Scrape all vehicle data from the iframe (not the main page!)
+    const vehicles = await inventoryFrame.evaluate(() => {
       const rows = Array.from(document.querySelectorAll('table tr')).slice(1); // Skip header
       
       return rows.map(row => {
