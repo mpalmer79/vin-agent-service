@@ -119,20 +119,26 @@ async function scrapeVINInventory() {
     // Wait a bit for dashboard to fully load
     await new Promise(resolve => setTimeout(resolve, 3000));
     
-    // Navigate directly to inventory URL (skip tab clicking - it has bugs)
-    console.log('📋 Navigating directly to inventory page...');
-    const inventoryUrl = 'https://vinsolutions.app.coxautoinc.com/vinconnect/#/CarDashboard/ploader.aspx?TargetControl=Inventory/autosp.ascx&SelectedTab=t_Inventory';
-    
-    await page.goto(inventoryUrl, {
-      waitUntil: 'domcontentloaded',
+    // Navigate to dashboard first to establish session
+    console.log('📋 Navigating to dashboard...');
+    await page.goto('https://vinsolutions.app.coxautoinc.com/vinconnect/pane-both/vinconnect-dealer-dashboard', {
+      waitUntil: 'networkidle2',
       timeout: 60000
     });
     
-    console.log('✅ Navigated to inventory URL');
+    console.log('✅ On dashboard, changing to inventory view...');
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    
+    // Change the hash fragment instead of full navigation (maintains session)
+    await page.evaluate(() => {
+      window.location.hash = '#/CarDashboard/ploader.aspx?TargetControl=Inventory/autosp.ascx&SelectedTab=t_Inventory';
+    });
+    
+    console.log('✅ Changed to inventory hash');
     
     // Wait for initial page load
     console.log('⏳ Waiting for page to initialize...');
-    await new Promise(resolve => setTimeout(resolve, 8000));
+    await new Promise(resolve => setTimeout(resolve, 10000));
     
     // Scroll down to trigger any lazy loading
     console.log('📜 Scrolling page to trigger content loading...');
