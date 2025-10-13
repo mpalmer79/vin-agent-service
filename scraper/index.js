@@ -119,98 +119,108 @@ async function scrapeVINInventory() {
     // Wait a bit for dashboard to fully load
     await new Promise(resolve => setTimeout(resolve, 3000));
     
-    // Navigate to dashboard
-    console.log('📋 Navigating to dashboard...');
-    await page.goto('https://vinsolutions.app.coxautoinc.com/vinconnect/pane-both/vinconnect-dealer-dashboard', { 
-      waitUntil: 'networkidle2',
-      timeout: 60000 
+    // Navigate directly to inventory URL (skip tab clicking - it has bugs)
+    console.log('📋 Navigating directly to inventory page...');
+    const inventoryUrl = 'https://vinsolutions.app.coxautoinc.com/vinconnect/#/CarDashboard/ploader.aspx?TargetControl=Inventory/autosp.ascx&SelectedTab=t_Inventory';
+    
+    await page.goto(inventoryUrl, {
+      waitUntil: 'domcontentloaded',
+      timeout: 60000
     });
     
-    // Wait for page to load
-    await new Promise(resolve => setTimeout(resolve, 3000));
+    console.log('✅ Navigated to inventory URL');
     
-    // Click Inventory tab
-    console.log('🔗 Looking for Inventory tab...');
-    try {
-      const inventoryTab = await page.evaluateHandle(() => {
-        const elements = Array.from(document.querySelectorAll('a, button, div[role="tab"]'));
-        return elements.find(el => {
-          const text = el.textContent.trim();
-          return text === 'Inventory' || text.toLowerCase() === 'inventory';
-        });
+    // Wait for initial page load
+    console.log('⏳ Waiting for page to initialize...');
+    await new Promise(resolve => setTimeout(resolve, 8000));
+    
+    // Scroll down to trigger any lazy loading
+    console.log('📜 Scrolling page to trigger content loading...');
+    await page.evaluate(() => {
+      window.scrollTo(0, document.body.scrollHeight);
+    });
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    // Scroll back up
+    await page.evaluate(() => {
+      window.scrollTo(0, 0);
+    });
+    await new Promise(resolve => setTimeout(resolve, 2000));
+    
+    console.log('📊 Looking for inventory table...');
+    
+    // Debug: Check what's on the page
+    const pageInfo = await page.evaluate(() => {
+      return {
+        tables: document.querySelectorAll('table').length,
+        tableCells: document.querySelectorAll('table td').length,
+        tableRows: document.querySelectorAll('table tr').length,
+        allText: document.body.innerText.substring(0, 500)
+      };
+    });
+    
+    console.log(`🔍 Page analysis:`, pageInfo);
+    
+    // Try to find the table with multiple approaches
+    let tableFound = false;
+    
+    // Approach 1: Standard table selector
+    const standardTable = await page.$('table');
+    if (standardTable) {
+      console.log('✅ Found table with standard selector');
+      tableFound = true;
+    }
+    
+    // Approach 2: Wait for cells to appear
+    if (!tableFound) {
+      console.log('⏳ Waiting for table cells to appear...');
+      try {
+        await page.waitForSelector('table td', { timeout: 20000 });
+        console.log('✅ Found table cells!');
+        tableFound = true;
+      } catch (err) {
+        console.log('⚠️  No table cells found yet');
+      }
+    }
+    
+    // Approach 3: Check for any tabular data structure
+    if (!tableFound) {
+      console.log('🔍 Checking for alternative table structures...');
+      const hasData = await page.evaluate(() => {
+        // Check for divs that might contain inventory data
+        const text = document.body.innerText.toLowerCase();
+        return text.includes('stock') || text.includes('silverado') || text.includes('chevrolet');
       });
       
-      if (inventoryTab) {
-        console.log('✅ Found Inventory tab, clicking...');
-        await inventoryTab.click();
-        await new Promise(resolve => setTimeout(resolve, 2000));
-        console.log('✅ Clicked Inventory tab');
-      } else {
-        console.log('⚠️  Could not find Inventory tab by text, trying CSS selector...');
-        const tabBySelector = await page.$('a[href*="Inventory"], button:contains("Inventory")');
-        if (tabBySelector) {
-          await tabBySelector.click();
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          console.log('✅ Clicked Inventory tab via selector');
+      if (hasData) {
+        console.log('⚠️  Found inventory keywords but no table structure');
+        console.log('💡 The page structure might be different than expected');
+      }
+    }
+    
+    // Final wait and attempt
+    if (!tableFound) {
+      console.log('⏳ Final wait period (15 seconds)...');
+      await new Promise(resolve => setTimeout(resolve, 15000));
+      
+      const finalCheck = await page.evaluate(() => {
+        return document.querySelectorAll('table td').length;
+      });
+      
+      console.log(`📊 Final check: ${finalCheck} table cells found`);
+      
+      if (finalCheck === 0) {
+        // Take a screenshot for debugging (save to /tmp which Render has)
+        try {
+          await page.screenshot({ path: '/tmp/inventory-debug.png', fullPage: true });
+          console.log('📸 Debug screenshot saved to /tmp/inventory-debug.png');
+        } catch (screenshotErr) {
+          console.log('⚠️  Could not save screenshot');
         }
+        
+        throw new Error('No table data found after all attempts. The page structure may have changed or requires different navigation.');
       }
-    } catch (err) {
-      console.log('⚠️  Could not click Inventory tab:', err.message);
     }
-    
-    // Click Browse Inventory link
-    console.log('🔗 Looking for Browse Inventory link...');
-    try {
-      const browseLink = await page.evaluateHandle(() => {
-        const links = Array.from(document.querySelectorAll('a'));
-        return links.find(el => {
-          const text = el.textContent.trim();
-          return text.includes('Browse Inventory') || text === 'Browse Inventory';
-        });
-      });
-      
-      if (browseLink) {
-        console.log('✅ Found Browse Inventory link, clicking...');
-        await Promise.all([
-          page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 60000 }),
-          browseLink.click()
-        ]);
-        console.log('✅ Navigated to Browse Inventory');
-      } else {
-        console.log('⚠️  Could not find Browse Inventory link, trying direct URL...');
-        await page.goto('https://vinsolutions.app.coxautoinc.com/vinconnect/#/CarDashboard/ploader.aspx?TargetControl=Inventory/autosp.ascx&SelectedTab=t_Inventory', {
-          waitUntil: 'domcontentloaded',
-          timeout: 60000
-        });
-        console.log('✅ Navigated via direct URL');
-      }
-    } catch (err) {
-      console.log('⚠️  Navigation error, trying direct URL fallback:', err.message);
-      await page.goto('https://vinsolutions.app.coxautoinc.com/vinconnect/#/CarDashboard/ploader.aspx?TargetControl=Inventory/autosp.ascx&SelectedTab=t_Inventory', {
-        waitUntil: 'domcontentloaded',
-        timeout: 60000
-      });
-    }
-    
-    // Wait for dynamic content to load
-    console.log('⏳ Waiting for page to fully load...');
-    await new Promise(resolve => setTimeout(resolve, 5000));
-    
-    console.log('📊 Waiting for inventory table with data...');
-    
-    // Wait for table to have actual data cells (not just the table tag)
-    await page.waitForFunction(
-      () => {
-        const cells = document.querySelectorAll('table td');
-        return cells.length > 10; // Wait for at least 10 cells (multiple rows)
-      },
-      { timeout: 40000 }
-    );
-    
-    console.log('✅ Table loaded with data!');
-    
-    // Extra wait to ensure all data is rendered
-    await new Promise(resolve => setTimeout(resolve, 3000));
     
     console.log('🔍 Extracting vehicle data...');
     
