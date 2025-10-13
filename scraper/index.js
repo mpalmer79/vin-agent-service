@@ -119,108 +119,21 @@ async function scrapeVINInventory() {
     // Wait a bit for dashboard to fully load
     await new Promise(resolve => setTimeout(resolve, 3000));
     
-    // Navigate to Browse Inventory
+    // Navigate directly to Browse Inventory page
     console.log('📋 Navigating to inventory page...');
     
-    // Try multiple methods to find and click inventory link
-    let navigated = false;
+    const inventoryUrl = 'https://vinsolutions.app.coxautoinc.com/vinconnect/#/CarDashboard/ploader.aspx?TargetControl=Inventory/autosp.ascx&SelectedTab=t_Inventory';
+    console.log('🔗 Going to:', inventoryUrl);
     
-    // Method 1: Direct href selector
-    try {
-      const inventoryLink = await page.$('a[href*="inventory"]');
-      if (inventoryLink) {
-        const text = await page.evaluate(el => el.textContent, inventoryLink);
-        console.log(`📍 Found inventory link (href): "${text}"`);
-        
-        await Promise.all([
-          page.waitForNavigation({ 
-            waitUntil: 'networkidle2',
-            timeout: 60000 
-          }),
-          inventoryLink.click()
-        ]);
-        navigated = true;
-      }
-    } catch (err) {
-      console.log('⚠️  Method 1 failed, trying next method...');
-    }
+    await page.goto(inventoryUrl, { 
+      waitUntil: 'networkidle2',
+      timeout: 60000 
+    });
     
-    // Method 2: Text-based search
-    if (!navigated) {
-      try {
-        const inventoryLink = await page.evaluateHandle(() => {
-          const links = Array.from(document.querySelectorAll('a'));
-          return links.find(a => {
-            const text = a.textContent.toLowerCase();
-            return text.includes('browse inventory') || 
-                   (text.includes('inventory') && !text.includes('add'));
-          });
-        });
-        
-        if (inventoryLink) {
-          const text = await page.evaluate(el => el.textContent, inventoryLink);
-          console.log(`📍 Found inventory link (text): "${text}"`);
-          
-          await Promise.all([
-            page.waitForNavigation({ 
-              waitUntil: 'networkidle2',
-              timeout: 60000 
-            }),
-            inventoryLink.click()
-          ]);
-          navigated = true;
-        }
-      } catch (err) {
-        console.log('⚠️  Method 2 failed, trying next method...');
-      }
-    }
-    
-    // Method 3: Direct navigation to inventory URL
-    if (!navigated) {
-      console.log('⚠️  Could not click link, trying direct navigation...');
-      const currentUrl = page.url();
-      const baseUrl = new URL(currentUrl).origin;
-      
-      // Try common inventory URLs
-      const inventoryUrls = [
-        `${baseUrl}/inventory`,
-        `${baseUrl}/browse-inventory`,
-        `${baseUrl}/inventory/browse`,
-        `${currentUrl.includes('?') ? currentUrl.split('?')[0] : currentUrl}?targetControl=inventory`
-      ];
-      
-      for (const url of inventoryUrls) {
-        try {
-          console.log(`🔗 Trying: ${url}`);
-          await page.goto(url, { 
-            waitUntil: 'networkidle2',
-            timeout: 30000 
-          });
-          
-          // Check if we have a table
-          const hasTable = await page.$('table');
-          if (hasTable) {
-            console.log('✅ Found inventory table via direct navigation');
-            navigated = true;
-            break;
-          }
-        } catch (err) {
-          console.log(`⚠️  ${url} failed`);
-        }
-      }
-    }
-    
-    if (!navigated) {
-      throw new Error('Could not navigate to Browse Inventory page');
-    }
-    
-    console.log('📊 Scraping inventory table...');
+    console.log('📊 Waiting for inventory table...');
     
     // Wait for inventory table
     await page.waitForSelector('table', { timeout: 20000 });
-    
-    // Take a screenshot for debugging (optional - only in development)
-    // await page.screenshot({ path: '/tmp/inventory-page.png', fullPage: true });
     
     console.log('🔍 Extracting vehicle data...');
     
