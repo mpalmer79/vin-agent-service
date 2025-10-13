@@ -117,7 +117,7 @@ async function scrapeVINInventory() {
     console.log('✅ Logged in successfully');
     
     // Wait a bit for dashboard to fully load
-    await page.waitForTimeout(3000);
+    await new Promise(resolve => setTimeout(resolve, 3000));
     
     // Navigate to Browse Inventory
     console.log('📋 Navigating to inventory page...');
