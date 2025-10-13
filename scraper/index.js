@@ -196,10 +196,21 @@ async function scrapeVINInventory() {
     console.log('⏳ Waiting for page to fully load...');
     await new Promise(resolve => setTimeout(resolve, 5000));
     
-    console.log('📊 Waiting for inventory table...');
+    console.log('📊 Waiting for inventory table with data...');
     
-    // Wait for inventory table
-    await page.waitForSelector('table', { timeout: 30000 });
+    // Wait for table to have actual data cells (not just the table tag)
+    await page.waitForFunction(
+      () => {
+        const cells = document.querySelectorAll('table td');
+        return cells.length > 10; // Wait for at least 10 cells (multiple rows)
+      },
+      { timeout: 40000 }
+    );
+    
+    console.log('✅ Table loaded with data!');
+    
+    // Extra wait to ensure all data is rendered
+    await new Promise(resolve => setTimeout(resolve, 3000));
     
     console.log('🔍 Extracting vehicle data...');
     
