@@ -114,7 +114,43 @@ async function scrapeVINInventory() {
       }
     }
     
-    console.log('✅ Logged in successfully');
+    console.log('✅ Login form submitted');
+    
+    // ============================================
+    // CRITICAL: VERIFY LOGIN ACTUALLY WORKED
+    // ============================================
+    console.log('🔍 Verifying login success...');
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    
+    // Check current URL
+    const currentUrl = page.url();
+    console.log('📍 Current URL after login:', currentUrl);
+    
+    // Check if we're still on the login page
+    const stillOnLogin = await page.$('input[name="username"], input[type="email"], input[name="loginId"]');
+    
+    if (stillOnLogin) {
+      console.error('❌ STILL ON LOGIN PAGE - Login failed!');
+      console.error('📍 Current URL:', currentUrl);
+      console.error('💡 Possible issues:');
+      console.error('   1. Wrong credentials (VIN_USERNAME or VIN_PASSWORD)');
+      console.error('   2. 2FA/Captcha required');
+      console.error('   3. Login flow changed');
+      console.error('   4. Account locked or disabled');
+      
+      // Take screenshot of login failure
+      console.log('📸 Taking screenshot of login failure...');
+      try {
+        await page.screenshot({ path: '/tmp/login-failed.png', fullPage: true });
+        console.log('📸 Login failure screenshot saved to /tmp/login-failed.png');
+      } catch (screenshotErr) {
+        console.log('⚠️  Could not save screenshot:', screenshotErr.message);
+      }
+      
+      throw new Error('Login failed - still on login page after form submission. Check credentials and login requirements.');
+    }
+    
+    console.log('✅ Logged in successfully - no longer on login page');
     
     // Wait a bit for dashboard to fully load
     await new Promise(resolve => setTimeout(resolve, 3000));
