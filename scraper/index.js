@@ -138,7 +138,7 @@ async function scrapeVINInventory() {
     
     // Wait for initial page load
     console.log('⏳ Waiting for page to initialize...');
-    await new Promise(resolve => setTimeout(resolve, 10000));
+    await new Promise(resolve => setTimeout(resolve, 5000));
     
     // Scroll down to trigger any lazy loading
     console.log('📜 Scrolling page to trigger content loading...');
@@ -155,47 +155,92 @@ async function scrapeVINInventory() {
     
     console.log('📊 Looking for iframe with inventory table...');
     
-    // Wait for iframe to load
-    await page.waitForSelector('iframe', { timeout: 30000 });
+    // ============================================
+    // OPTION 3: DYNAMIC IFRAME WAITING
+    // Keep checking every 2 seconds for up to 30 seconds
+    // ============================================
     
-    // Get all frames
-    const frames = page.frames();
-    console.log(`🔍 Found ${frames.length} frames`);
-    
-    // Find the frame containing the inventory table
     let inventoryFrame = null;
+    const maxAttempts = 15; // 15 attempts * 2 seconds = 30 seconds
+    let attempt = 0;
     
-    for (const frame of frames) {
-      const frameUrl = frame.url();
-      console.log(`  Checking frame: ${frameUrl.substring(0, 100)}...`);
+    while (!inventoryFrame && attempt < maxAttempts) {
+      attempt++;
+      console.log(`🔄 Attempt ${attempt}/${maxAttempts}: Searching for inventory iframe...`);
       
+      // Wait for any iframe to exist
       try {
-        // Check if this frame contains the table
-        const hasTable = await frame.$('table');
-        if (hasTable) {
-          // Count cells to make sure it's the right table
-          const cellCount = await frame.evaluate(() => {
-            return document.querySelectorAll('table td').length;
-          });
-          
-          console.log(`  Found table with ${cellCount} cells`);
-          
-          if (cellCount > 10) {
-            console.log(`✅ Found inventory table in frame!`);
-            inventoryFrame = frame;
-            break;
-          }
-        }
+        await page.waitForSelector('iframe', { timeout: 5000 });
       } catch (err) {
-        // Frame might not be accessible, skip it
-        console.log(`  ⚠️  Could not access frame: ${err.message}`);
+        console.log(`  ⏳ No iframes found yet, waiting...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        continue;
       }
+      
+      // Get all frames
+      const frames = page.frames();
+      console.log(`  🔍 Found ${frames.length} frame(s) on page`);
+      
+      // Check each frame for the inventory table
+      for (const frame of frames) {
+        const frameUrl = frame.url();
+        
+        // Skip signin/auth frames - we want the app frame
+        if (frameUrl.includes('signin.coxautoinc.com')) {
+          console.log(`  ⏭️  Skipping signin frame`);
+          continue;
+        }
+        
+        console.log(`  🔎 Checking frame: ${frameUrl.substring(0, 80)}...`);
+        
+        try {
+          // Check if this frame contains a table
+          const hasTable = await frame.$('table');
+          
+          if (hasTable) {
+            // Count cells to verify it's the inventory table
+            const cellCount = await frame.evaluate(() => {
+              const cells = document.querySelectorAll('table td');
+              return cells.length;
+            });
+            
+            console.log(`     📊 Found table with ${cellCount} cells`);
+            
+            // Inventory table should have many cells (>50 for just a few vehicles)
+            if (cellCount > 50) {
+              console.log(`  ✅ Found inventory table in frame!`);
+              inventoryFrame = frame;
+              break;
+            } else {
+              console.log(`     ⚠️  Table too small, likely not inventory table`);
+            }
+          } else {
+            console.log(`     ℹ️  No table found in this frame`);
+          }
+        } catch (err) {
+          // Frame might not be accessible or still loading
+          console.log(`     ⚠️  Could not access frame: ${err.message}`);
+        }
+      }
+      
+      // If we found the frame, exit the loop
+      if (inventoryFrame) {
+        break;
+      }
+      
+      // Wait 2 seconds before next attempt
+      console.log(`  ⏳ Inventory iframe not found, waiting 2 seconds...`);
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
     
+    // Check if we found the frame
     if (!inventoryFrame) {
-      throw new Error('Could not find iframe containing inventory table');
+      console.error('❌ Could not find inventory iframe after 30 seconds');
+      console.error('💡 The page may need more time to load, or the structure has changed');
+      throw new Error('Could not find iframe containing inventory table after 30 seconds');
     }
     
+    console.log('🎉 Successfully located inventory iframe!');
     console.log('🔍 Extracting vehicle data from iframe...');
     
     // Scrape all vehicle data from the iframe (not the main page!)
