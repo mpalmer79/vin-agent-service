@@ -5,6 +5,8 @@ import { config } from 'dotenv';
 import OpenAI from 'openai';
 import { appendFile } from 'fs/promises';
 import pg from 'pg';
+import fs from 'fs';
+import path from 'path';
 
 config(); // Load .env file
 
@@ -371,6 +373,27 @@ app.post('/api/inventory/sync', async (req, res) => {
     res.status(500).json({
       success: false,
       error: error.message
+    });
+  }
+});
+
+// ============================================================================
+// DEBUG: SCREENSHOT ENDPOINT
+// ============================================================================
+app.get('/api/debug/screenshot', (req, res) => {
+  const screenshotPath = '/tmp/debug-no-iframe.png';
+  
+  console.log('[Debug] Screenshot request - checking for:', screenshotPath);
+  
+  if (fs.existsSync(screenshotPath)) {
+    console.log('[Debug] ✅ Screenshot found, sending file');
+    res.sendFile(screenshotPath);
+  } else {
+    console.log('[Debug] ❌ Screenshot not found');
+    res.status(404).json({ 
+      error: 'Screenshot not found',
+      message: 'Run a scrape first (/api/inventory/sync) to generate the debug screenshot',
+      path: screenshotPath
     });
   }
 });
