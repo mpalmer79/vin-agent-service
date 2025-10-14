@@ -237,6 +237,36 @@ async function scrapeVINInventory() {
     if (!inventoryFrame) {
       console.error('❌ Could not find inventory iframe after 30 seconds');
       console.error('💡 The page may need more time to load, or the structure has changed');
+      
+      // DEBUG: Take screenshot to see what's on the page
+      console.log('📸 Taking screenshot for debugging...');
+      try {
+        await page.screenshot({ path: '/tmp/debug-no-iframe.png', fullPage: true });
+        console.log('📸 Screenshot saved to /tmp/debug-no-iframe.png');
+      } catch (screenshotErr) {
+        console.log('⚠️  Could not save screenshot:', screenshotErr.message);
+      }
+      
+      // DEBUG: Check if table exists in MAIN page (not iframe)
+      console.log('🔍 Checking if table exists in main page (not iframe)...');
+      const mainPageTable = await page.$('table');
+      if (mainPageTable) {
+        const mainTableCells = await page.evaluate(() => {
+          return document.querySelectorAll('table td').length;
+        });
+        console.log(`⚠️  TABLE FOUND IN MAIN PAGE! (${mainTableCells} cells) Not in iframe!`);
+        console.log('💡 The page structure may have changed - table might not be in iframe anymore');
+      } else {
+        console.log('❌ No table found in main page either');
+      }
+      
+      // DEBUG: Log all frame URLs
+      const allFrames = page.frames();
+      console.log('📋 All frames on page:');
+      allFrames.forEach((frame, index) => {
+        console.log(`   ${index + 1}. ${frame.url()}`);
+      });
+      
       throw new Error('Could not find iframe containing inventory table after 30 seconds');
     }
     
